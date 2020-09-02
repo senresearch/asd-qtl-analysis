@@ -1,0 +1,671 @@
+Analysis of ASD cross
+=====================
+Saunak Sen <sen@biostat.ucsf.edu>
+:numbered:
+:data-uri:
+
+== Introduction ==
+
+=== Initial remarks ===
+
+This document describes the analysis of the mouse cross for a modifier
+screen for ASD.  
+
+An F2 intercross between B6 and CAST was performed. The B6 background
+contains the mutation, Col4a1 which is located on chromosome 8:
+11198423-11312826. The ASD phenotype on the B6 background is very
+severe. When the mutation is crossed on the CAST B6F1 background, the
+ASD phentype was largely rescued.  The data consist of 96 F2 mice.
+
+Genotyping was performed using Illumina's medium density panel.
+
+=== Recap of 16 April 2012 conversation ===
+
+[quote, Doug Gould, via email]
+_________________________________________________
+
+COL4A1 is a major protein component of nearly all basement membranes
+and mutations cause pathology in all organs that we have tested.  The
+project is to identify modifiers of Col4a1 pathology. We chose to use
+the ocular dysgenesis phenotype to find modifiers because it is 1)
+early onset 2) easily observed 3) strongly modified between the two
+strains. In general, the pathology for the phenotypes are most severe
+on B6 and strongly rescued by CAST. In 2005 I used a crude method to
+identify a dominant locus on CAST Ch. 1 that had a rescuing effect. In
+this experiment, I made CAST.B6 F1 mice then crossed a mutant back to
+B6, selected a phenotypically normal mutant, crossed it back to B6,
+selected a phenotypically normal mutant etc for 4 generations. At N4 I
+generated \~100 mutants and did a genome wide scan on the mildest 20
+mice and the most severe 20 mice using ~5 Mit markers per chromosome
+and looking at the intensity of the bands on agarose gels. I
+identified a highly penetrant modifier in a 38Mb region b/w D1Mit211
+and D1Mit303. Because of the way I did the cross I would have
+overlooked any recessive modifiers and because of the multiple strong
+bottlenecks I may have also overlooked other, and potentially
+stronger, dominant modifiers.
+
+To start fresh (and to see if we could re-identify the Ch. 1 modifier
+at UCSF) Mao has undertaken this large-scale F2 cross. She generated
+\~200 mutant mice and scored each eye for the severity of ocular
+anterior segment dysgenesis (ASD) at ~1 month of age. I have attached
+Mao's spreadsheet that has the phenotypic data for the entire
+population. As we discussed yesterday, from this population Mao
+selected a cohort which, as you pointed out, makes this more of a
+case?control study where we may expect enrichment of CAST alleles in
+milder mice. Mao told me yesterday after our talk that the cohort was
+made up of the 53 "mildest" mice and then filled in with the 43 most
+severe (although, in both cases these started to bleed into the
+middle). The rationale was that if there were multiple modifiers that
+rescue the phenotype that we would want a large population of mild
+mice so that each modifier was represented as often as
+possible. Perhaps in retrospect this might not have been the most
+powerful way to do it but it is what we have.
+
+We collected other organs (brain, kidney, muscle etc.) so that we can
+retrospectively test whether or not a specific locus is eye-specific
+or if it acts more generally. These phenotypes are scored
+histologically and so not very amenable to high throughput for use as
+a screening phenotype. We did however collect urine and and blood and
+measured 1) hematurea 2) anemia which could be used as independent
+primary screens to see if the same, or different, loci emerge. Mao has
+included those phenotypes in the attached spreadsheets. I am not quite
+sure how you will handle these data with respect to an unselected
+population vs a selected cohort (case/control) since the severities of
+the hematurea and anemia do not seem to associate with the severity of
+ASD. As you requested, Mao has also indicated the cross direction on
+the attached files.
+
+For our purposes, we would like to know the following:
+
+  1.  Definition of the loci including boundaries (confidence interval)
+  2.  Are they dominant or recessive?
+  3.  Are there interactions between loci?
+  4.  Can you estimate the magnitude of the effect of different loci?
+
+I just found one more note from our conversation ? sex bias. The
+cohort was 61/35 M/F. I am not sure if this also reflects the
+population or if this was somehow effected by the selection.
+_________________________________________________
+
+== Data entry ==
+
+Our first task is to process the primary data in a form that R/qtl can
+process.
+
+
+=== Preliminary steps ===
+
+We first load the necessary libraries for statistical analysis, set
+the cache directory, and set the random number seed so that the
+results are reproducible.
+
+
+<<loadlibrary,cache=FALSE>>=
+library(qtl)
+# library(snow)
+# setCacheDir("rCache")
+# options(width=132)
+set.seed(40881)
+@ 
+
+=== Data entry ===
+
+Enter the raw data and print the dimensions of the data.
+
+<<readData>>=
+rawData <- read.table(file="primary/asd.csv",colClasses="character", 
+                      header=FALSE,sep=",")
+dim(rawData)
+@ 
+
+We remove the last seven columns.
+
+<<removeColumns>>=
+idx <- 1456:1462 
+rawData1 <- rawData[,-idx]
+@ 
+
+We remove the last three rows.
+<<removeRows>>=
+idx <- 100:102
+rawData2 <- rawData1[-idx,]
+dim(rawData2)
+@ 
+
+Now we will try to remove monomorphic markers that do not contribute
+any information.  The first 6 columns are phenotypes, and the rest are
+genotypes.  We will tabulate the genotypes and count the number of
+genotypes observed, excluding the missing genotypes (denoted by "-").
+
+
+=== Looking for informative markers ===
+
+<<removeMono>>=
+idx <- 7:1455
+nVariants <- apply(rawData2[4:99,idx],2,
+                   function(x) {length(table(x,exclude="-"))})
+table(nVariants)
+@ 
+
+We see that 784 markers have all three expected genotypes, and 636 are
+monomorphic.  The 29 markers with two observed genotypes are curious.
+We will take a closer look at those.
+
+<<twoGeno>>=
+twoGenoidx <- which(nVariants==2)
+apply(rawData2[4:99,idx[twoGenoidx]],2,table)
+@ 
+
+Not sure what to make of these markers.  For the moment, we will just
+discard all these markers.
+
+<<cleanData>>=
+threeGenoidx <- which(nVariants==3)
+rawData3 <- rawData2[,idx[threeGenoidx]]
+rawData3 <- cbind(rawData2[,1:6],rawData3)
+dim(rawData3)
+for( i in 7:ncol(rawData3) )
+   {
+    rawData3[-(1:3),i] <- gsub("-","",rawData3[-(1:3),i])
+    rawData3[-(1:3),i] <- gsub(" ","",rawData3[-(1:3),i])
+   }
+@ 
+
+<<pgmRecode>>=
+idx <- which(rawData3[,6]=="Dex41/B6")
+rawData3[idx,6] <- 0
+idx <- which(rawData3[,6]=="Cast/EiJ")
+rawData3[idx,6] <- 1
+@ 
+
+We now write the data into a file.
+
+<<writeCross>>=
+write.table(rawData3,file="processed/asdCross.csv",row.names=FALSE,
+                   col.names=FALSE,sep=",")
+@ 
+
+
+== Diagnostics ==
+
+Now we read in the data and then perform diagnostics.
+
+
+=== Read in cross data ===
+
+<<readCross>>=
+asd <- read.cross(format="csv",file="processed/asdCross.csv",
+                  geno=c("B","H","C"))
+@ 
+
+
+=== Phenotypes ===
+
+We now perform some diagnostics.
+
+<<summaryCross>>=
+summary(asd)
+@ 
+
+These are the names of the phenotypes.
+<<phenoNames>>=
+names(asd$pheno)
+@ 
+
+<<tableCat>>=
+table(asd$pheno$sex)
+table(asd$pheno$pgm)
+table(asd$pheno$sex,asd$pheno$pgm)
+@ 
+
+
+--
+.Pairwise plots of the phenotypes
+<<plotPheno,fig=T,echo=F>>=
+  pairs(asd$pheno[,2:6])
+@ 
+--
+
+
+==== Regression on covariates ====
+
+We now perform regression on covariates.
+
+<<lm0>>=
+reg0 <- lm(asd~sex+pgm,data=asd$pheno)
+summary(reg0)
+@
+
+<<lm1>>=
+reg1 <- lm(asd.left~sex+pgm,data=asd$pheno)
+summary(reg1)
+@ 
+
+<<lm2>>=
+reg2 <- lm(asd.right~sex+pgm,data=asd$pheno)
+summary(reg2)
+@ 
+
+
+=== Genotypes ===
+
+We examine the genotypes.
+
+<<tableGeno>>=
+gTable <- geno.table(asd)
+gTable
+@ 
+
+<<suspectSeg>>=
+gTable[which(gTable[,12]<0.05),]
+@ 
+
+A large number of markers seem out of expectation.
+
+<<suspectMarkers>>=
+nmar(asd)
+length(which(gTable[,12]<0.05))
+@ 
+
+<<removeMarkers>>=
+dropNames <- row.names(gTable[which(gTable[,12]<0.001),])
+asd1 <- drop.markers(asd,dropNames)
+summary(asd)
+summary(asd1)
+@ 
+
+
+==== Recombination fractions ====
+
+We calculate the recombination fractions for the markers in the data.
+
+<<estRF,cache=T>>=
+asd1 <- est.rf(asd1)
+@ 
+
+--
+.Recombination fractions
+<<plotRF,fig=T,echo=F>>=
+plot.rf(asd1)
+@ 
+--
+
+
+==== Map estimation ====
+
+<<estMap,cache=T>>=
+  mp <- est.map(asd1)
+@ 
+
+--
+.Original basepair map
+<<plotMap0,fig=T,echo=F>>=
+plot.map(asd1)
+@ 
+--
+
+--
+.Estimated cM map
+<<plotMap1,fig=T,echo=F>>=
+plot.map(mp)
+@ 
+--
+
+
+==== Closer look at chromosome 9 ====
+
+--
+<<chr9GenoFig0,fig=T,width=15,height=10,echo=F>>=
+plot.geno(asd1,chr=9)  
+@ 
+--
+
+<<chr9Geno0>>=
+names(asd1$geno[[9]]$map)
+delMkName <- names(asd1$geno[[9]]$map)[13]
+asd2 <- drop.markers(asd1,delMkName)
+@ 
+
+--
+<<chr9GenoFig1,fig=T,width=15,height=10,echo=F>>=
+plot.geno(asd2,chr=9)  
+@ 
+--
+
+<<estMap1,cache=T>>=
+mp1 <- est.map(asd2)
+@ 
+
+--
+.Estimated cM map
+<<plotMap2,fig=T,echo=F>>=
+plot.map(mp1)
+@ 
+--
+
+
+== Genome scans ==
+
+We now perform the genome scans for ASD.
+
+
+=== ASD ===
+
+We replace the basepair map with the estimated genetic map.
+Then we calculate genotype probabilities at a dense grid spaced
+at about 2cM.
+
+<<calcGeno>>=
+asd2 <- replace.map(asd2,mp1)
+asd2 <- calc.genoprob(asd2,step=2)
+@ 
+
+We perform a genome scan and then use 1000 permutations to assess
+significance.
+
+<<scan1>>=
+out1 <- scanone(asd2,pheno.col=2)
+@ 
+
+<<scan1Perm,cache=T>>=
+out1Perm <- scanone(asd2,pheno.col=2,n.perm=1000)
+@ 
+
+--
+.Genome scan for ASD
+<<plotScan1,fig=T,width=10,echo=F>>=
+plot(out1)
+add.threshold(out1,perms=out1Perm)
+add.threshold(out1,perms=out1Perm,alpha=0.10,lty=2)
+@ 
+--
+
+The horizontal lines show genomewide thresholds.  The solid line is the 
+5% threshold and the dashed line is the 10% threshold.
+
+
+=== ASD dichotomized ===
+
+We now analyze ASD as a dichotomous trait, with those less that equal to 1 as
+having a phenotype.
+
+The first step is to create the dichotomous variable.
+<<dichot>>=
+asd2$pheno$asdBin <- as.numeric(asd2$pheno$asd<=1)
+@ 
+
+Now we perform the genome scan with the binary regression model.
+
+<<scan2>>=
+out2 <- scanone(asd2,pheno.col=7,model="binary")
+@ 
+
+Next we perform permutations to asses significance.
+
+<<scan2Perm,cache=T>>=
+out2Perm <- scanone(asd2,pheno.col=7,model="binary",n.perm=1000)
+@ 
+
+--
+.Genome scan with dichotomous ASD
+<<plotScan2,fig=T,width=10,echo=F>>=
+plot(out2)
+add.threshold(out2,perms=out2Perm)
+add.threshold(out2,perms=out2Perm,alpha=0.10,lty=2)
+@ 
+--
+
+== Using revised data ==
+
+After our conversation on 16 April 2012, we got revised data with all
+the phenotyes for all mice in the cross, and a spreadsheet with two
+additional phenotypes for the genotyped mice.  We now analyze the data
+keeping in mind that selection was performed.
+
+<<readData1>>=
+rawData <- read.table(file="primary/asd1.csv",colClasses="character", 
+                      header=FALSE,sep=",")
+dim(rawData)
+@ 
+
+We remove the last three rows.
+<<removeRows1>>=
+idx <- 100:102
+rawData1 <- rawData[-idx,]
+dim(rawData1)
+@ 
+
+Now we will try to remove monomorphic markers that do not contribute
+any information.  The first 8 columns are phenotypes, and the rest are
+genotypes.  We will tabulate the genotypes and count the number of
+genotypes observed, excluding the missing genotypes (denoted by "-").
+
+
+=== Looking for informative markers ===
+
+<<removeMono1>>=
+idx <- 9:1457
+nVariants <- apply(rawData1[4:99,idx],2,
+                   function(x) {length(table(x,exclude="-"))})
+table(nVariants)
+@ 
+
+We see that 784 markers have all three expected genotypes, and 636 are
+monomorphic.  The 29 markers with two observed genotypes are curious.
+
+We will discard the dimorphic and monomorphic markers.
+
+<<cleanData1>>=
+threeGenoidx <- which(nVariants==3)
+rawData2 <- rawData1[,idx[threeGenoidx]]
+rawData2 <- cbind(rawData1[,1:8],rawData2)
+dim(rawData2)
+for( i in 9:ncol(rawData2) )
+   {
+    rawData2[-(1:3),i] <- gsub("-","",rawData2[-(1:3),i])
+    rawData2[-(1:3),i] <- gsub(" ","",rawData2[-(1:3),i])
+   }
+@ 
+
+<<pgmRecode1>>=
+idx <- which(rawData2[,8]=="Dex41/B6")
+rawData2[idx,8] <- 0
+idx <- which(rawData2[,8]=="Cast/EiJ")
+rawData2[idx,8] <- 1
+@ 
+
+We rescale the basepair positions to megabase positions.
+
+<<rescaleBp>>=
+rawData2[3,] <- as.numeric(as.character(rawData2[3,]))/10^6
+idx <- is.na(rawData2[3,])
+rawData2[3,idx] <- ""
+@ 
+
+We then write the revised data into a file.
+
+<<writeCross1>>=
+write.table(rawData2,file="processed/asdCross1.csv",row.names=FALSE,
+                   col.names=FALSE,sep=",")
+@ 
+
+
+=== Read in cross data ===
+
+<<readCross1>>=
+asd1 <- read.cross(format="csv",file="processed/asdCross1.csv",
+                  geno=c("B","H","C"))
+@ 
+
+
+=== Phenotypes ===
+
+We now perform some diagnostics.
+
+<<summaryCross1>>=
+summary(asd1)
+@ 
+
+<<tableAsd>>=
+table(asd1$pheno$asd)
+@ 
+
+<<scan1Function,eval=FALSE>>=
+scan1 <- function(cr,pheno.col)
+  {
+  }
+@ 
+
+<<dropChr9Marker>>=
+asd1 <- drop.markers(asd1,delMkName)
+@ 
+
+=== One-dimensional genome scan ===
+
+We create a dichotomous variable.
+<<dichot1>>=
+asd1$pheno$asdBin <- as.numeric(asd1$pheno$asd<=2)
+@ 
+
+Now we perform the genome scan with the binary regression model.
+
+<<scan3>>=
+out3 <- scanone(asd1,pheno.col=9,model="binary",method="mr")
+@ 
+
+Next we perform permutations to asses significance.
+
+<<scan3Perm,cache=T>>=
+out3Perm <- scanone(asd1,pheno.col=9,model="binary",method="mr",
+                    n.perm=1000)
+@ 
+
+--
+.Genome scan with dichotomous ASD, all markers included
+<<plotScan3,fig=T,width=10,echo=F>>=
+plot(out3)
+add.threshold(out3,perms=out3Perm)
+add.threshold(out3,perms=out3Perm,alpha=0.10,lty=2)
+@ 
+--
+
+--
+.Genome scan with dichotomous ASD, all markers included, chromosome 1
+<<plotScan3Chr1,fig=T,width=10,echo=F>>=
+plot(out3,chr=1)
+@ 
+--
+
+=== Closer look at Chromosome 1 QTL ===
+
+The Bayesian 95% and 99.9% confidence intervals.
+
+<<bayesintChr1>>=
+bayesint(out3,chr=1,prob=0.95)
+bayesint(out3,chr=1,prob=0.999)
+@ 
+
+Table of the marker with the largest LOD score.
+
+<<chr1QtlTable>>=
+table(asd1$pheno$asdBin,asd1$geno[[1]]$data[,21])
+@ 
+
+Table of all markers on chromosome 1 against the phenotype.
+
+<<chr1Table>>=
+gg1 <- asd1$geno[[1]]$data
+lapply(data.frame(gg1),function(x){table(x,asd1$pheno$asdBin)})
+@ 
+
+Basically the confidence region would be those markers where the
+there is no individual with the 3 genotype and 0 phenotype.
+
+=== Conditional genome scan ===
+
+<<scan4>>=
+out4 <- scanone(asd1,chr=-1,addcovar=as.numeric(gg1[,21]<3), 
+                pheno.col=9,model="binary",method="em")
+@ 
+
+<<scan4Perm,cache=T>>=
+out4Perm <- scanone(asd1,chr=-1,pheno.col=9,addcovar=as.numeric(gg1[,21]<3),
+                    model="binary",method="em",n.perm=1000)
+@ 
+
+--
+.Genome scan with dichotomous ASD, minus chromosome 1
+<<plotScan4,fig=T,width=10,echo=F>>=
+plot(out4)
+add.threshold(out4,perms=out4Perm)
+add.threshold(out4,perms=out4Perm,alpha=0.10,lty=2)
+@ 
+--
+
+=== Two-dimensional scan ===
+
+<<scan5,cache=T>>=
+out5 <- scantwo(asd1,pheno.col=9,model="binary",method="hk")
+@ 
+
+--
+<<plotScan5,fig=T,width=10,height=10>>=
+plot(out5)
+@ 
+--
+
+
+== Using ungenotyped animals ==
+
+As mentioned earlier, animals were selected for genotyping based on
+their phenotype.  This increases power to detect QTL for fixed number
+of animals genotyped, but it introduces some complications for other
+analyses.
+
+Below, we undertake a closer examination of the selection.
+
+We read in the data, and then create an additional variable that
+indicates who was genotyped.
+
+=== Read in data ===
+
+<<wholePopData>>=
+pop <- read.csv("processed/wholePopPheno.csv")
+genoId <- asd1$pheno$id
+pop$genotyped <- 0
+pop$genotyped[!is.na(match(pop$id,genoId))] <- 1
+@ 
+
+=== A few tables ===
+
+Now we tabulate some key characteristics against whether or not they
+were genotyped.
+
+<<wholePopTables>>=
+table(pop$genotyped,pop$asd,dnn=c("genotyped","asd"),useNA="ifany")
+table(pop$genotyped,pop$sex,dnn=c("genotyped","sex"),useNA="ifany")
+table(pop$genotyped,pop$pgm ,dnn=c("genotyped","pgm"),useNA="ifany")
+@ 
+
+We can see the selection play out based on ASD.  This selection will
+play a role in our analysis of the secondary phenotypes.  We also want
+to see if we can detect evidence of segregation distortion.
+
+<<recodeSecondaryPheno>>=
+pop$hematuria[pop$hematuria=="-"] <- NA
+pop$hematuria <- as.numeric(as.character(pop$hematuria))
+pop$anemia[pop$anemia=="-"] <- NA
+pop$anemia <- as.numeric(as.character(pop$anemia))
+@ 
+
+<<tableSecondaryPheno0>>=
+table(pop$genotyped,pop$hematuria,dnn=c("genotyped","hematuria"),useNA="ifany")
+table(pop$genotyped,pop$anemia,dnn=c("genotyped","anemia"),useNA="ifany")
+@ 
+<<tableSecondaryPheno1>>=
+table(pop$asd,pop$hematuria,dnn=c("asd","hematuria"),useNA="ifany")
+table(pop$asd>=2,pop$hematuria>0,dnn=c("asd","hematuria"),useNA="ifany")
+table(pop$asd,pop$anemia,dnn=c("asd","anemia"),useNA="ifany")
+table(pop$asd>=2,pop$anemia>0,dnn=c("asd","anemia"),useNA="ifany")
+@ 
+

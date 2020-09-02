@@ -1,0 +1,555 @@
+Second analysis of ASD cross
+============================
+Saunak Sen <sen@biostat.ucsf.edu>
+:numbered:
+:data-uri:
+
+
+== Version notes ==
+
+=== Version 3: 13 June 2013 ===
+
+- Added coding of alleles for better readibility
+- Added effect plot for NPN and sqrt NPN 
+
+=== Version 2: 12 June 2013 ===
+
+- Received new data from Mao.
+- X chromosome genotypes reconciled.
+- Square root NPN phenotype considered.
+- Dichotomous ASD (at median, 2) considered.
+- Numerical hematuria considered.
+- Adjustment for sex considered.
+- Confidence intervals for loci.
+- Updated confidence intervals to end at markers.
+- Added table with estimated genetic map.
+- Tabulated chromosome 1 genotypes by binary ASD phenotype
+
+=== Version 1: 24 May 2013 ===
+
+- Need batch information. 
+- Chromosome 1 locus for ASD and NPN.  None for hematuria and anemia.
+- We should treat ASD and other phenotypes as binary.  Need to
+  discuss this.
+- X chromosome needs work.
+- We should discuss whether to adjust for sex/pgm/batch.
+- Need to discuss selective sampling and its potential effects on the analysis.
+
+== Introduction ==
+
+=== Initial remarks ===
+
+This document describes the analysis of the second round of data from
+a mouse cross for a modifier screen for ASD.
+
+An F2 intercross between B6 and CAST was performed. The B6 background
+contains the mutation, Col4a1 which is located on chromosome 8:
+11198423-11312826. The ASD phenotype on the B6 background is very
+severe. When the mutation is crossed on the CAST B6F1 background, the
+ASD phentype was largely rescued.
+
+See the link:asdAnalysis.html[first analysis report] for more
+informartion.
+
+The analysis steps will follow the same steps as the first analysis,
+but will use mice from both batches.
+
+== Data entry ==
+
+Our first task is to process the primary data in a form that R/qtl can
+process.
+
+
+=== Preliminary steps ===
+
+We first load the necessary libraries for statistical analysis, set
+the cache directory, and set the random number seed so that the
+results are reproducible.
+
+<<loadlibrary,cache=FALSE>>=
+library(qtl)
+library(vcd)
+set.seed(40881)
+options(width=132)
+@ 
+
+=== Data entry ===
+
+Enter the raw data and print the dimensions of the data.
+
+<<readData>>=
+rawData <- read.table(file="primary/asd3.csv",colClasses="character", 
+                      header=FALSE,sep=",")
+dim(rawData)
+@ 
+
+Now we will try to remove monomorphic markers that do not contribute
+any information.  The first 9 columns are phenotypes, and the rest are
+genotypes.  We will tabulate the genotypes and count the number of
+genotypes observed, excluding the missing genotypes (denoted by "-").
+
+
+=== Number of variants per marker ===
+
+<<tableAlleles>>=
+colIdx <- 12:1460
+rowIdx <- 4:197
+nVariants <- apply(rawData[rowIdx,colIdx],2,
+                   function(x) {length(table(x,exclude="-"))})
+table(nVariants)
+@ 
+
+There are 787 markers with all three expected genotypes (in the
+previous round there were 784).  There are 513 monomorphic markers,
+and 139 dimorphic markers.  There are 4 markers with four alleles.  We
+have to examine these closely.
+
+=== List of unique values ===
+
+We list all the unique values in the table.
+<<tableValues>>=
+tabAlleles <- apply(rawData[rowIdx,colIdx],2,table,exclude="-")
+unique(unlist(lapply(tabAlleles,names)))
+@ 
+
+=== Replace extraneous values ===
+
+We replace the unexpected characters with what we expect.
+
+<<replaceValues>>=
+replaceValues <- function(x,a,b)
+  {
+    for( i in 1:ncol(x) )
+      {
+        idx <- which(x[,i]==a)
+        if(length(idx)>0)
+          x[idx,i] <- b
+      }
+    x
+  }
+@ 
+
+<<replaceExtraneous>>=
+newData <- replaceValues(rawData,"--","-")
+newData <- replaceValues(newData,"B ","B")
+newData <- replaceValues(newData,"C ","C")
+newData[-(1:3),] <- replaceValues(newData[-(1:3),]," ",NA)
+newData[-(1:3),11] <- sub("B","0",newData[-(1:3),11])
+newData[-(1:3),11] <- sub("C","1",newData[-(1:3),11])
+tabAlleles <- apply(newData[rowIdx,colIdx],2,table,exclude="-")
+unique(unlist(lapply(tabAlleles,names)))
+@ 
+
+=== Write out new data set ===
+
+We now have only the expected codes in our data.
+
+<<writeData>>=
+write.table(newData,file="asdCross3.csv",quote=FALSE,sep=",",
+            row.names=FALSE,col.names=FALSE)
+@ 
+
+== Genotype diagnostics ==
+
+We now perform some data diagnostics on the genotype
+data.  First, we read in the data.
+
+<<readCross0>>=
+cr <- read.cross(file="asdCross3.csv",format="csv",na.string="-",
+                 genotypes=c("B","H","C"),convertX=FALSE,
+                 alleles=c("B","C"))
+@ 
+
+=== Genotype image ===
+--
+<<genoImage0,fig=T,width=10,height=10,echo=FALSE>>=
+geno.image(cr)
+@ 
+--
+
+=== Table genotypes ===
+
+Listed below are the markers and their estimated genetic map (in cM)
+positions.
+
+<<genoTable0>>=
+gt <- geno.table(cr)
+gt
+@ 
+
+There are lots of monomorphic markers and markers with too many
+missing genotypes.  Let's examine those with p-values greater than
+0.01 and less than 50 missing values.
+
+=== Table selected markers ===
+
+<<genoTable0Select>>=
+idx <- which((gt$P.value>0.1)&(gt$missing<50))
+gt[idx,]
+delMarkerNames <- rownames(gt)[-idx]
+cr1 <- drop.markers(cr,delMarkerNames)
+@ 
+
+We keep markers that have p-values greater than 0.1 and have less than
+50 missing values.
+
+=== Genotype image of selected markers ===
+--
+<<genoImage1,fig=T,width=10,height=10,echo=FALSE>>=
+geno.image(cr1)
+@ 
+--
+
+The X chromosome does not look right and we need to work on this further.
+
+=== X chromosome ===
+
+We now examine the X chromosome in greater detail.  First we show the
+X chromosome genotypes, with individuals ordered by sex and PGM.
+
+<<orderingVar>>=
+sexPgm <- 2*(as.numeric(cr$pheno$sex)-1) + cr$pheno$pgm
+cr$pheno <- cbind(cr$pheno,sexPgm)
+table(cr$pheno$sexPgm,cr$pheno$pgm)
+table(cr$pheno$sexPgm,cr$pheno$sex)
+@ 
+
+--
+<<orderingVarFig0,fig=T>>=
+geno.image(cr,reorder=12,chr=c("19","X"))
+@ 
+--
+
+We now tabulate the X chromosome genotypes by the two sexes.
+<<tabXChr>>=
+xChrTabM <- geno.table(subset(cr,ind=(cr$pheno$sex=="M")),chr="X")
+xChrTabF <- geno.table(subset(cr,ind=(cr$pheno$sex=="F")),chr="X")
+xChrTabM
+xChrTabF
+@ 
+ 
+We will select markers that have pvalues greater than 0.1, and less
+than 50 missing.
+
+
+<<xChrMarkersSelect>>=
+idx <- which((xChrTabM$P.value<0.1)|(xChrTabM$missing>50))
+delMarkerNamesX <- rownames(xChrTabM)[idx]
+
+idx <- which(((gt$P.value<0.1)|(gt$missing>50))&(gt$chr!="X"))
+delMarkerNamesNoX <- rownames(gt)[idx]
+
+delMarkerNames <- union(delMarkerNamesX,delMarkerNamesNoX)
+cr <- drop.markers(cr,delMarkerNames)
+@ 
+
+We now make that figure again.
+
+--
+<<orderingVarFig1,fig=T>>=
+geno.image(cr,reorder=12,chr=c("19","X"))
+@ 
+--
+
+This looks a lot better, but there is one funny marker.
+
+<<plotRfChrX,fig=T>>=
+plot.rf(cr,chr="X")
+@ 
+
+We drop that marker.
+
+<<dropMarker>>=
+cr1 <- drop.markers(cr,"rs13483926")
+@ 
+
+=== Cleaned genotype image ===
+
+Just for confirmation, we make the genotype plot again.
+
+<<genoImage2,fig=T,height=10,width=10>>=
+geno.image(cr1)
+@ 
+
+=== Estimate map ===
+
+We estimated the map based on the observed data.
+
+<<estMap,cache=T>>=
+mp <- est.map(cr1,offset=0,n.cluster=16)
+@ 
+
+--
+<<plotMap0,fig=T>>=
+plot(mp)
+@ 
+--
+
+Compare with physical map.
+
+--
+<<plotMap1,fig=T>>=
+plot(pull.map(cr1),main="Physical map")
+@ 
+--
+
+There is a big gap on chromosome 9, but it is consistent with the physical
+map, so we will keep the markers.  Also, the recombination plot looks fine.
+
+<<plotRfChr9,fig=T>>=
+plot.rf(cr1,chr=9)
+@ 
+
+
+<<replaceMap,cache=T>>=
+cr1 <- replace.map(cr1,mp)
+@ 
+
+=== Estimated map tabled ===
+
+<<mapTable>>=
+round(1000*t(t(unlist(pull.map(cr1)))))/1000
+@
+
+=== Cross summary ===
+
+<<phenoNames>>=
+summary(cr1)
+names(cr1$pheno)
+@ 
+
+=== Pairs plot of phenotypes ===
+
+--
+<<pairs,fig=T>>=
+panel.hist <- function(x, ...)
+  {
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(usr[1:2], 0, 1.5) )
+    h <- hist(x, plot = FALSE)
+    breaks <- h$breaks; nB <- length(breaks)
+    y <- h$counts; y <- y/max(y)
+    rect(breaks[-nB], 0, breaks[-1], y, col = "cyan", ...)
+  }
+
+pairs(cr1$pheno[,c(2:9)],diag.panel=panel.hist)
+@ 
+--
+
+There is at least one RBC outlier, which we will remove.  We will also
+have a square root of NPN.
+
+<<rbcOutlier>>=
+cr1$pheno$RBC[cr1$pheno$RBC>12] <- NA
+@ 
+
+<<sqrtNPN>>=
+cr1$pheno$sqrtNPN <- sqrt(cr1$pheno$NPN.)
+@ 
+
+
+=== Correlations ===
+
+<<corPheno>>=
+round(1000*cor(cr1$pheno[,2:9],use="p"))/1000
+@ 
+
+=== ASD left and right ===
+
+--
+<<asdLeftRightPlot,fig=T>>=
+mosaic(cr1$pheno$asd.left~cr1$pheno$asd.right,
+       highlighting_fill=terrain.colors(3))
+@ 
+--
+
+=== ASD and sex/PGM ===
+
+--
+<<asdSexPlot,fig=T>>=
+mosaic(cr1$pheno$asd~cr1$pheno$sex,
+       highlighting_fill=terrain.colors(5))
+@ 
+--
+
+--
+<<asdPgmPlot,fig=T>>=
+mosaic(cr1$pheno$asd~cr1$pheno$pgm,
+       highlighting_fill=terrain.colors(5))
+@ 
+--
+
+== Genome scans ==
+
+We calculate the genotype probabilities as a preparatory step.
+
+<<prep>>=
+cr1 <- calc.genoprob(cr1,step=2)
+@ 
+
+We perform genome scans and 1024 permutations for evaluating
+significance.  All genome scans use linear models which are likely not
+the best for the categorical phenotypes.  We need to discuss and make
+changes as appropriate.
+
+<<scan1>>=
+out1 <- scanone(cr1,pheno.col=c(2:9,13),method="hk")
+out1x <- scanone(cr1,pheno.col=c(2:9,13),addcovar=as.numeric(cr1$pheno$sex),
+                 method="hk")
+@ 
+
+We make a dichotomous version of ASD and analyze it.  I dichotomized
+at the median (2).  This is better for power, and is consistent with
+the previous version.
+
+<<scan1Bin>>=
+cr1$pheno$asdBin <- as.numeric(cr1$pheno$asd<=2)
+out1Bin <- scanone(cr1,pheno.col=14,method="hk",model="binary")
+out1xBin <- scanone(cr1,pheno.col=14,addcovar=as.numeric(cr1$pheno$sex),
+                    method="hk",model="binary")
+@ 
+
+<<scan1Perm,cache=T>>=
+out1Perm <- scanone(cr1,pheno.col=c(2:9,13),method="hk",n.perm=1024,
+                    n.cluster=16)
+out1xPerm <- scanone(cr1,pheno.col=c(2:9,13),addcovar=as.numeric(cr1$pheno$sex),
+                     method="hk",n.perm=1024,n.cluster=16)
+@ 
+
+<<scan1BinPerm,cache=T>>=
+out1BinPerm <- scanone(cr1,pheno.col=14,method="hk",model="binary",
+                       n.perm=1024,n.cluster=16)
+out1xBinPerm <- scanone(cr1,pheno.col=14,addcovar=as.numeric(cr1$pheno$sex),
+                        method="hk",model="binary",
+                        n.perm=1024,n.cluster=16)
+@ 
+
+=== Summary tables ===
+
+These are the main hits, tabulated by phenotype and chromosome.  We
+list only those QTL that have genomewide pvalues less than 0.2.  The
+confidence intervals are given in the table.  These are 95% Bayesian
+confidence intervals expanded to the nearest typed marker.  The QTL
+are for ASD and NPN.  Both are on the same place on chromosome 1.
+
+<<summaryScan1>>=
+summary(out1,perm=out1Perm,format="tabByCol",pval=T,alpha=0.2,ci="bayesint",
+	expand=T)
+summary(out1Bin,perm=out1BinPerm,format="tabByCol",pval=T,alpha=0.2,
+        ci="bayesint",expand=T)
+@ 
+
+Now we summarize, after adjusting for sex.
+
+<<summaryScan1x>>=
+summary(out1x,perm=out1xPerm,format="tabByCol",pval=T,alpha=0.2,ci="bayesint")
+summary(out1xBin,perm=out1xBinPerm,format="tabByCol",pval=T,alpha=0.2,
+        ci="bayesint",expand=T)
+@ 
+
+=== Figures ===
+
+We plot the genome scans along with 5% and 10% thresholds.
+
+--
+<<scan1Plot,fig=T,width=12,height=24>>=
+par(mfrow=c(10,1))
+
+for( i in 1:9 )
+  {
+    plot(out1,lodcol=i)
+    add.threshold(out1,lodcol=i,alpha=0.05,lty=1,perms=out1Perm)
+    add.threshold(out1,lodcol=i,alpha=0.10,lty=2,perms=out1Perm)
+  }
+plot(out1Bin)
+add.threshold(out1Bin,alpha=0.05,lty=1,perms=out1BinPerm)
+add.threshold(out1Bin,alpha=0.10,lty=2,perms=out1BinPerm)
+@ 
+--
+
+
+--
+.Genome scan for binary phenotype adjusting for sex
+<<scan1PlotBin,fig=T,width=12,height=3>>=
+plot(out1Bin,out1xBin)
+add.threshold(out1Bin,alpha=0.05,lty=1,perms=out1BinPerm)
+add.threshold(out1Bin,alpha=0.10,lty=2,perms=out1BinPerm)
+add.threshold(out1xBin,alpha=0.05,lty=1,perms=out1xBinPerm)
+add.threshold(out1xBin,alpha=0.10,lty=2,perms=out1xBinPerm)
+@ 
+--
+
+There is little difference in the two scans suggesting that adjustment
+for sex does not make a difference.
+
+=== Conditional scan for binary ASD ===
+
+We now get the genotypes for the chromosome 1 QTL best position and
+conduct a genome scan conditional on that marker.
+
+<<getChr1Qtl>>=
+g1 <- pull.geno(cr1,chr=1)
+q1 <- g1[,24]
+@ 
+
+<<scan1CondBinPerm,cache=T>>=
+out1CondBin <- scanone(cr1,pheno.col=14,addcovar=q1,method="hk",
+                       model="binary",n.cluster=16)
+out1CondBinPerm <- scanone(cr1,pheno.col=14,addcovar=q1,method="hk",
+                           model="binary",
+                           n.perm=1024,n.cluster=16)
+@ 
+
+
+--
+.Conditional genome scan for binary ASD
+<<scan1PlotBinCond,fig=T,width=12,height=3>>=
+plot(out1CondBin)
+add.threshold(out1CondBin,alpha=0.05,lty=1,perms=out1CondBinPerm)
+add.threshold(out1CondBin,alpha=0.20,lty=2,perms=out1CondBinPerm)
+@ 
+--
+
+In the plot above the dotted threshold is for a 20% false positive
+rate.  The conclusion would be that there are likely no other loci
+affecting the phenotype.
+
+
+=== Chromosome 1 vs phenotype ===
+
+<<markerVsPheno>>=
+gg1 <- pull.geno(cr1,chr=1)
+lapply(data.frame(gg1),function(x){ftable(x,cr1$pheno$asdBin,
+                                          dnn=c("marker","pheno"))})
+@ 
+
+=== Effect plots ===
+
+All the following plots are for the SNP rs13475919.
+
+--
+<<effectPlot0,fig=T>>=
+rs13475919 <- factor(gg1[,24],labels=c("BB","BH","CC"))
+mosaic(cr1$pheno$asd~rs13475919,
+       highlighting_fill=terrain.colors(5))
+@ 
+--
+
+--
+<<effectPlot1,fig=T>>=
+mosaic(cr1$pheno$asdBin~rs13475919,
+       highlighting_fill=terrain.colors(2))
+@ 
+--
+
+--
+.Effect plot for NPN and sqrtNPN
+<<effectPlot2,fig=T,height=12,width=6>>=
+par(mfrow=c(2,1))
+plotPXG(cr1,"rs13475919",pheno.col=13)
+plotPXG(cr1,"rs13475919",pheno.col=9)
+@ 
+--
+
+Given the small number of BB genotypes, can there be concern that this
+is driven by the selection of who was phenotyped for NPN?
