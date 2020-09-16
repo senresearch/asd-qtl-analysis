@@ -286,7 +286,7 @@ asd1 <- est.rf(asd1)
 --
 .Recombination fractions
 <<plotRF,fig=T,echo=F>>=
-plot.rf(asd1)
+plotRF(asd1)
 @ 
 --
 
@@ -300,14 +300,14 @@ plot.rf(asd1)
 --
 .Original basepair map
 <<plotMap0,fig=T,echo=F>>=
-plot.map(asd1)
+plotMap(asd1)
 @ 
 --
 
 --
 .Estimated cM map
 <<plotMap1,fig=T,echo=F>>=
-plot.map(mp)
+plotMap(mp)
 @ 
 --
 
@@ -316,7 +316,7 @@ plot.map(mp)
 
 --
 <<chr9GenoFig0,fig=T,width=15,height=10,echo=F>>=
-plot.geno(asd1,chr=9)  
+plotGeno(asd1,chr=9)  
 @ 
 --
 
@@ -328,7 +328,7 @@ asd2 <- drop.markers(asd1,delMkName)
 
 --
 <<chr9GenoFig1,fig=T,width=15,height=10,echo=F>>=
-plot.geno(asd2,chr=9)  
+plotGeno(asd2,chr=9)  
 @ 
 --
 
@@ -339,7 +339,7 @@ mp1 <- est.map(asd2)
 --
 .Estimated cM map
 <<plotMap2,fig=T,echo=F>>=
-plot.map(mp1)
+plotMap(mp1)
 @ 
 --
 

@@ -254,7 +254,7 @@ geno.image(cr,reorder=12,chr=c("19","X"))
 This looks a lot better, but there is one funny marker.
 
 <<plotRfChrX,fig=T>>=
-plot.rf(cr,chr="X")
+plotRF(cr,chr="X")
 @ 
 
 We drop that marker.
@@ -297,7 +297,7 @@ There is a big gap on chromosome 9, but it is consistent with the physical
 map, so we will keep the markers.  Also, the recombination plot looks fine.
 
 <<plotRfChr9,fig=T>>=
-plot.rf(cr1,chr=9)
+plotRF(cr1,chr=9)
 @ 
 
 
