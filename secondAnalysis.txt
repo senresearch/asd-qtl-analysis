@@ -553,3 +553,10 @@ plotPXG(cr1,"rs13475919",pheno.col=9)
 
 Given the small number of BB genotypes, can there be concern that this
 is driven by the selection of who was phenotyped for NPN?
+
+== Session info ==
+
+<<sessionInfo>>=
+sessionInfo()
+@
+

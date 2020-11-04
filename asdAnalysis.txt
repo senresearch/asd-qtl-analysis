@@ -669,3 +669,8 @@ table(pop$asd,pop$anemia,dnn=c("asd","anemia"),useNA="ifany")
 table(pop$asd>=2,pop$anemia>0,dnn=c("asd","anemia"),useNA="ifany")
 @ 
 
+== Session info ==
+
+<<sessionInfo>>=
+sessionInfo()
+@
